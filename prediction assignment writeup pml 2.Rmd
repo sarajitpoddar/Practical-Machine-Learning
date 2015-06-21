@@ -1,0 +1,168 @@
+---
+title: "Prediction Assignment Writeup (PML)"
+author: "Sarajit Poddar"
+date: "21 June 2015"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+---
+
+# Introduction
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Data 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+## Goal of the project
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+# Project Detail
+## Initial Project Setup
+### Load libraries
+```{r libraries, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Load required libraries
+library(dplyr);  library (tidyr); library(ggplot2)
+library(caret);  library(randomForest)
+# set see so that the results can be reproducible
+set.seed(130)
+```
+
+### Download data
+```{r downloaddata, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Download and load the data into memory. Don't save it into the harddisk
+# Download the Training data
+trainUrl<-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+# Download the Testing data
+testUrl <-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+### Explore data
+```{r exploredata, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+dim(train); dim(test)
+table(train$classe)
+```
+
+### Cleaning and transformation
+```{r transformdata, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Transformation 1: exclude near zero variance (NZV) features
+data   <- train
+nzvcol <- nearZeroVar(data)
+data   <- data[, -nzvcol]
+dim(data)
+
+# Transformation 2: Exclude the columns with 40% ore more missing values (NA) 
+col.len  <- sapply(data, function(x) {sum(!(is.na(x) | x == ""))})
+null.col <- names(col.len[col.len  < 0.6 * length(data$classe)])
+data <- data[, !names(data) %in% null.col]
+dim(data)
+
+# Transformation 3: Exclude descriptive columns
+descriptive.col <- c("X", "user_name", "raw_timestamp_part_1", 
+                     "raw_timestamp_part_2", "cvtd_timestamp", 
+                     "new_window", "num_window")
+data <- data[, !names(data) %in% descriptive.col]
+dim(data)
+
+# Assign the data back to the training dataset
+train <- data
+```
+
+### Splitting data into Training and Testing
+```{r splitdata, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Split the data into training and testing datasets
+# 70% in the training dataset and 30% in testing dataset
+inTrain  <- createDataPartition(y=train$classe, p=0.7, list=FALSE)
+training <- train[inTrain,]
+testing  <- train[-inTrain,]
+dim(training); dim(testing)
+```
+
+## Developing Predictive Models (Decision Tree)
+```{r modelfit.dt, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+modFit <- train(classe~., method = "rpart", data = training)
+```
+
+### Plotting the classification tree, the fancy style
+```{r fancyplot, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+library(rattle); library(rpart.plot)
+fancyRpartPlot(modFit$finalModel)
+```
+
+### Validating the Model
+#### Training set accuracy (In-Sample)
+```{r model.dt.validation.train, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+pred.train <- predict(modFit, training)
+print(confusionMatrix(pred.train, training$classe))
+```
+The accuracy with the training set is 0.4985, which is considered very poor, hence, this model can't be used to predict the outcome of the downloaded "test" dataset.
+
+#### Validation set accuracy (Out-of-Sample)
+```{r model.dt.validation.test, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+pred.test <- predict(modFit, testing)
+print(confusionMatrix(pred.test, testing$classe))
+```
+The out-of-sample is 0.4873, as expected can't be better, as the in-sample accuracy is very low. In the next section, I will Random forest predictive model and hope that the accuracy is going to be better.
+
+## Developing Predictive Models (Randomforest)
+```{r modelfit.rf, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+modFit <- randomForest(classe ~. , data=training,
+                       importance = TRUE, ntrees = 10)
+```
+
+### Validating the Model
+#### Training set accuracy (In-Sample)
+```{r model.rf.validation.train, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+pred.train <- predict(modFit, training)
+print(confusionMatrix(pred.train, training$classe))
+```
+The accuracy is 1, which is expected. Lets see the accuracy in the "testing" sample
+
+#### Validation set accuracy (Out-of-Sample)
+```{r model.rf.validation.test, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+pred.test <- predict(modFit, testing)
+print(confusionMatrix(pred.test, testing$classe))
+```
+The accuracy is 0.9946, which is excellent. Hence, the Random forest algorithm will be used to predict the outcome of the "Test" dataset that is downloaded.
+
+## Predicting the outcome using the Test dataset
+```{r model.rf.validation.final.prediction, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Retain column names in the Test dataset, as same as the Train dataset
+test      <- test[names(subset(training, select=-c(classe)))]
+# Predicting the outcome of the final test data
+pred.test <- predict(modFit, test)
+print(pred.test)
+```
+
+## Generating Files to submit as answers for the Assignment
+```{r finalsubmission, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+# Saving the prediction as vector
+answers <- as.vector(pred.test)
+# Function for generating the files for submission
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE,
+                col.names=FALSE)
+  }
+}
+# Calling the function
+pml_write_files(answers)
+```
+
